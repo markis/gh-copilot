@@ -11,14 +11,17 @@ import (
 
 // Arguments represents the command-line arguments structure.
 type Arguments struct {
-	Prompt string
-	Model  string
+	Prompt  string
+	Model   string
+	Command string
 }
 
 // parseArgs parses command-line arguments and stdin input.
 func parseArgs() (Arguments, error) {
 	var model string
+	var command string
 	flag.StringVar(&model, "model", "claude-3.7-sonnet", "The AI model to use")
+	flag.StringVar(&command, "c", "", "Use a predefined command from config")
 	flag.Parse()
 
 	var prompt string
@@ -39,9 +42,9 @@ func parseArgs() (Arguments, error) {
 		prompt = flag.Arg(0)
 	}
 
-	if prompt == "" {
-		return Arguments{}, errors.New("no prompt provided")
+	if command == "" && prompt == "" {
+		return Arguments{}, errors.New("no prompt or command provided")
 	}
 
-	return Arguments{Prompt: prompt, Model: model}, nil
+	return Arguments{Prompt: prompt, Model: model, Command: command}, nil
 }

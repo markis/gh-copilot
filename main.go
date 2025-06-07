@@ -5,15 +5,37 @@ import (
 	"os"
 )
 
-// main function to parse arguments and initiate the chat request.
 func main() {
 	args, err := parseArgs()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	if err := ask(args.Prompt, args.Model); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
+
+	var prompt string
+	if args.Command != "" {
+		config, err := loadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+
+		cmdPrompt, ok := config.Prompts[args.Command]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Error: command '%s' not found in config\n", args.Command)
+			os.Exit(1)
+		}
+		prompt = cmdPrompt
+
+		if args.Prompt != "" {
+			prompt += "\n" + args.Prompt
+		}
+	} else {
+		prompt = args.Prompt
+	}
+
+	if err := ask(prompt, args.Model); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
