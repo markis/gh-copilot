@@ -11,17 +11,20 @@ import (
 
 // Arguments represents the command-line arguments structure.
 type Arguments struct {
-	Prompt  string
-	Model   string
-	Command string
+	Prompt    string
+	Model     string
+	Command   string
+	PlainText bool
 }
 
 // parseArgs parses command-line arguments and stdin input.
 func parseArgs() (Arguments, error) {
 	var model string
 	var command string
+	var plainText bool
 	flag.StringVar(&model, "model", "claude-3.7-sonnet", "The AI model to use")
 	flag.StringVar(&command, "c", "", "Use a predefined command from config")
+	flag.BoolVar(&plainText, "plain", shouldUsePlainText(), "Disable markdown rendering")
 	flag.Parse()
 
 	var prompt string
@@ -46,5 +49,27 @@ func parseArgs() (Arguments, error) {
 		return Arguments{}, errors.New("no prompt or command provided")
 	}
 
-	return Arguments{Prompt: prompt, Model: model, Command: command}, nil
+	return Arguments{Prompt: prompt, Model: model, Command: command, PlainText: plainText}, nil
+}
+
+// shouldUsePlainText determines if plain text output should be used based on environment and terminal settings.
+func shouldUsePlainText() bool {
+	// Check if output is being redirected
+	if fileInfo, _ := os.Stdout.Stat(); fileInfo != nil {
+		if (fileInfo.Mode() & os.ModeCharDevice) == 0 {
+			return true
+		}
+	}
+
+	// Check for NO_COLOR environment variable
+	if _, exists := os.LookupEnv("NO_COLOR"); exists {
+		return true
+	}
+
+	// Check for TERM=dumb
+	if term := os.Getenv("TERM"); term == "dumb" {
+		return true
+	}
+
+	return false
 }

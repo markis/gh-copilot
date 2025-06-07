@@ -140,7 +140,7 @@ func getHTTPClient() *http.Client {
 	return httpClient
 }
 
-func ask(prompt, model string) error {
+func ask(prompt, model string, usePlainText bool) error {
 	headers, err := getHeaders()
 	if err != nil {
 		return fmt.Errorf("failed to get headers: %w", err)
@@ -178,7 +178,7 @@ func ask(prompt, model string) error {
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	return processStream(resp.Body)
+	return processStream(resp.Body, usePlainText)
 }
 
 var markdownRenderer *glamour.TermRenderer
@@ -207,7 +207,7 @@ func findMarkdownBreakPoint(content string) int {
 }
 
 // processStream handles the streaming response from the API
-func processStream(body io.ReadCloser) error {
+func processStream(body io.ReadCloser, usePlainText bool) error {
 	reader := bufio.NewReaderSize(body, 4096)
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024) // Increase buffer size
@@ -244,29 +244,38 @@ func processStream(body io.ReadCloser) error {
 		if idx := findMarkdownBreakPoint(content[lastPrintedLen:]); idx > 0 {
 			// Process up to the break point
 			completeContent := content[:lastPrintedLen+idx]
-			section := strings.TrimSpace(completeContent[lastPrintedLen:])
-			if strings.HasPrefix(section, "#") {
-				fmt.Println() // Print a newline before headings
+			section := completeContent[lastPrintedLen:]
+			if usePlainText {
+				fmt.Print(section)
+			} else {
+				section = strings.TrimSpace(section)
+				if strings.HasPrefix(section, "#") {
+					fmt.Println() // Print a newline before headings
+				}
+				mdContent, err := renderer.Render(section)
+				if err != nil {
+					return fmt.Errorf("failed to render markdown: %w", err)
+				}
+				fmt.Println(strings.TrimSpace(mdContent))
 			}
-			mdContent, err := renderer.Render(section)
-			if err != nil {
-				return fmt.Errorf("failed to render markdown: %w", err)
-			}
-			fmt.Println(strings.TrimSpace(mdContent))
 			lastPrintedLen = len(completeContent)
 		}
 	}
 
 	// Process any remaining content
 	if remaining := buffer.String()[lastPrintedLen:]; remaining != "" {
-		if strings.HasPrefix(remaining, "#") {
-			fmt.Println() // Print a newline before headings
+		if usePlainText {
+			fmt.Print(remaining)
+		} else {
+			if strings.HasPrefix(remaining, "#") {
+				fmt.Println() // Print a newline before headings
+			}
+			mdContent, err := renderer.Render(strings.TrimSpace(remaining))
+			if err != nil {
+				return fmt.Errorf("failed to render markdown: %w", err)
+			}
+			fmt.Println(strings.TrimSpace(mdContent))
 		}
-		mdContent, err := renderer.Render(strings.TrimSpace(remaining))
-		if err != nil {
-			return fmt.Errorf("failed to render markdown: %w", err)
-		}
-		fmt.Println(strings.TrimSpace(mdContent))
 	}
 	fmt.Println()
 

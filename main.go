@@ -34,7 +34,7 @@ func main() {
 		prompt = args.Prompt
 	}
 
-	if err := ask(prompt, args.Model); err != nil {
+	if err := ask(prompt, args.Model, args.PlainText); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
