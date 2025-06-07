@@ -1,4 +1,4 @@
-package main
+package args
 
 import (
 	"bufio"
@@ -18,7 +18,7 @@ type Arguments struct {
 }
 
 // parseArgs parses command-line arguments and stdin input.
-func parseArgs() (Arguments, error) {
+func ParseArgs() (Arguments, error) {
 	var model string
 	var command string
 	var plainText bool

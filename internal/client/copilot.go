@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bufio"
@@ -43,14 +43,15 @@ type ChatResponse struct {
 		} `json:"message"`
 	} `json:"choices"`
 }
-type Message map[string]any
-type Options map[string]any
+type (
+	Message map[string]any
+	Options map[string]any
+)
 
 // defaultHeaders returns the default headers for the API requests.
 func defaultHeaders() map[string]string {
 	return map[string]string{
 		"Editor-Version":         "vscode/1.100.2",
-		"Editor-Plugin-Version":  "CopilotChat.nvim/*",
 		"Copilot-Integration-Id": "vscode-chat",
 	}
 }
@@ -78,7 +79,12 @@ func getHeaders(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			fmt.Printf("failed to close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token request failed with status code: %d", resp.StatusCode)
@@ -99,7 +105,6 @@ func getHeaders(ctx context.Context) (map[string]string, error) {
 
 // PrepareInput prepares chat input for Copilot API
 func prepareInput(prompt, modelID string) map[string]any {
-
 	// Get model configuration
 	isOpenAIModel := strings.HasPrefix(modelID, "o1")
 
@@ -123,9 +128,11 @@ func prepareInput(prompt, modelID string) map[string]any {
 }
 
 // getHTTPClient returns a singleton HTTP client
-var httpClient *http.Client
-var httpClientOnce sync.Once
-var defaultTimeout = 60 * time.Second
+var (
+	httpClient     *http.Client
+	httpClientOnce sync.Once
+	defaultTimeout = 60 * time.Second
+)
 
 func getHTTPClient(ctx context.Context) *http.Client {
 	httpClientOnce.Do(func() {
@@ -162,7 +169,7 @@ func getHTTPClient(ctx context.Context) *http.Client {
 	return &clientCopy
 }
 
-func ask(ctx context.Context, prompt, model string, usePlainText bool) error {
+func Ask(ctx context.Context, prompt, model string, usePlainText bool) error {
 	headers, err := getHeaders(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get headers: %w", err)
@@ -193,7 +200,12 @@ func ask(ctx context.Context, prompt, model string, usePlainText bool) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			fmt.Printf("failed to close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -203,8 +215,10 @@ func ask(ctx context.Context, prompt, model string, usePlainText bool) error {
 	return processStream(resp.Body, usePlainText)
 }
 
-var markdownRenderer *glamour.TermRenderer
-var rendererOnce sync.Once
+var (
+	markdownRenderer *glamour.TermRenderer
+	rendererOnce     sync.Once
+)
 
 func getMarkdownRenderer() *glamour.TermRenderer {
 	rendererOnce.Do(func() {

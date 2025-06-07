@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"context"
@@ -63,8 +63,8 @@ func tryLoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// loadConfig loads the configuration from the user's home directory, with a timeout.
-func loadConfig(ctx context.Context) (*Config, error) {
+// LoadConfig loads the configuration from the user's home directory, with a timeout.
+func LoadConfig(ctx context.Context) (*Config, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 

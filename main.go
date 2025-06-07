@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/markis/gh-copilot/internal/args"
+	"github.com/markis/gh-copilot/internal/client"
+	"github.com/markis/gh-copilot/internal/config"
 )
 
 // timeoutDuration defines how long the program will wait for a response before timing out.
@@ -15,7 +19,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(ctx, timeoutDuration)
 	defer cancel()
 
-	args, err := parseArgs()
+	args, err := args.ParseArgs()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -23,7 +27,7 @@ func main() {
 
 	var prompt string
 	if args.Command != "" {
-		config, err := loadConfig(ctx)
+		config, err := config.LoadConfig(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
@@ -43,7 +47,7 @@ func main() {
 		prompt = args.Prompt
 	}
 
-	if err := ask(ctx, prompt, args.Model, args.PlainText); err != nil {
+	if err := client.Ask(ctx, prompt, args.Model, args.PlainText); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
