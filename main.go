@@ -1,11 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 )
 
+// timeoutDuration defines how long the program will wait for a response before timing out.
+const timeoutDuration = 5 * time.Minute
+
 func main() {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, timeoutDuration)
+	defer cancel()
+
 	args, err := parseArgs()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -14,7 +23,7 @@ func main() {
 
 	var prompt string
 	if args.Command != "" {
-		config, err := loadConfig()
+		config, err := loadConfig(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
@@ -34,7 +43,7 @@ func main() {
 		prompt = args.Prompt
 	}
 
-	if err := ask(prompt, args.Model, args.PlainText); err != nil {
+	if err := ask(ctx, prompt, args.Model, args.PlainText); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

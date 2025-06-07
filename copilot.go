@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -47,21 +49,21 @@ type Options map[string]any
 // defaultHeaders returns the default headers for the API requests.
 func defaultHeaders() map[string]string {
 	return map[string]string{
-		"Editor-Version":         "Neovim/0.11.2",
+		"Editor-Version":         "vscode/1.100.2",
 		"Editor-Plugin-Version":  "CopilotChat.nvim/*",
 		"Copilot-Integration-Id": "vscode-chat",
 	}
 }
 
 // getHeaders retrieves the authorization headers required for the API requests.
-func getHeaders() (map[string]string, error) {
+func getHeaders(ctx context.Context) (map[string]string, error) {
 	token, err := getGitHubToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, GitHubAPI+"/copilot_internal/v2/token", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GitHubAPI+"/copilot_internal/v2/token", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -123,25 +125,45 @@ func prepareInput(prompt, modelID string) map[string]any {
 // getHTTPClient returns a singleton HTTP client
 var httpClient *http.Client
 var httpClientOnce sync.Once
+var defaultTimeout = 60 * time.Second
 
-func getHTTPClient() *http.Client {
+func getHTTPClient(ctx context.Context) *http.Client {
 	httpClientOnce.Do(func() {
+		transport := &http.Transport{
+			MaxIdleConns:       100,
+			IdleConnTimeout:    90 * time.Second,
+			DisableCompression: false,
+			DisableKeepAlives:  false,
+			ForceAttemptHTTP2:  true,
+		}
+
+		// Add context-aware dial options
+		transport.DialContext = (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext
+
 		httpClient = &http.Client{
-			Timeout: 60 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:       100,
-				IdleConnTimeout:    90 * time.Second,
-				DisableCompression: false,
-				DisableKeepAlives:  false,
-				ForceAttemptHTTP2:  true,
-			},
+			Transport: transport,
 		}
 	})
-	return httpClient
+
+	// Check if there's a timeout in the context
+	if deadline, ok := ctx.Deadline(); ok {
+		// Create a clone of the default client with the context timeout
+		clientCopy := *httpClient
+		clientCopy.Timeout = time.Until(deadline)
+		return &clientCopy
+	}
+
+	// Return default client with default timeout
+	clientCopy := *httpClient
+	clientCopy.Timeout = defaultTimeout
+	return &clientCopy
 }
 
-func ask(prompt, model string, usePlainText bool) error {
-	headers, err := getHeaders()
+func ask(ctx context.Context, prompt, model string, usePlainText bool) error {
+	headers, err := getHeaders(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get headers: %w", err)
 	}
@@ -152,7 +174,7 @@ func ask(prompt, model string, usePlainText bool) error {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, APIBase+"/chat/completions", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, APIBase+"/chat/completions", bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -165,7 +187,7 @@ func ask(prompt, model string, usePlainText bool) error {
 	req.Header.Set("Accept", "text/event-stream")
 
 	// Use a singleton client instead of creating a new one for each request
-	client := getHTTPClient()
+	client := getHTTPClient(ctx)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -216,7 +238,11 @@ func processStream(body io.ReadCloser, usePlainText bool) error {
 	var buffer strings.Builder
 	var chunk ChatResponse
 	var lastPrintedLen int
-	renderer := getMarkdownRenderer()
+
+	var renderer *glamour.TermRenderer
+	if usePlainText {
+		renderer = getMarkdownRenderer()
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -245,7 +271,7 @@ func processStream(body io.ReadCloser, usePlainText bool) error {
 			// Process up to the break point
 			completeContent := content[:lastPrintedLen+idx]
 			section := completeContent[lastPrintedLen:]
-			if usePlainText {
+			if renderer == nil {
 				fmt.Print(section)
 			} else {
 				section = strings.TrimSpace(section)
@@ -264,7 +290,7 @@ func processStream(body io.ReadCloser, usePlainText bool) error {
 
 	// Process any remaining content
 	if remaining := buffer.String()[lastPrintedLen:]; remaining != "" {
-		if usePlainText {
+		if renderer == nil {
 			fmt.Print(remaining)
 		} else {
 			if strings.HasPrefix(remaining, "#") {
