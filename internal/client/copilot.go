@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/cli/go-gh/v2/pkg/markdown"
+	"github.com/markis/gh-copilot/internal/render"
+	"github.com/markis/gh-copilot/internal/stream"
 )
 
 // For more examples of using go-gh, see:
@@ -169,6 +168,7 @@ func getHTTPClient(ctx context.Context) *http.Client {
 	return &clientCopy
 }
 
+// Ask sends a chat request to the Copilot API and processes the response.
 func Ask(ctx context.Context, prompt, model string, usePlainText bool) error {
 	headers, err := getHeaders(ctx)
 	if err != nil {
@@ -186,142 +186,27 @@ func Ask(ctx context.Context, prompt, model string, usePlainText bool) error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set default headers
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	// Use a singleton client instead of creating a new one for each request
 	client := getHTTPClient(ctx)
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		err = resp.Body.Close()
-		if err != nil {
-			fmt.Printf("failed to close response body: %v\n", err)
-		}
-	}()
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	return processStream(resp.Body, usePlainText)
-}
+	parser := stream.NewParser()
+	renderer := render.NewTerminalRenderer(usePlainText)
 
-var (
-	markdownRenderer *glamour.TermRenderer
-	rendererOnce     sync.Once
-)
-
-func getMarkdownRenderer() *glamour.TermRenderer {
-	rendererOnce.Do(func() {
-		markdownRenderer, _ = glamour.NewTermRenderer(
-			markdown.WithTheme("dark"),
-			markdown.WithWrap(120),
-		)
-	})
-	return markdownRenderer
-}
-
-// findMarkdownBreakPoint looks for natural break points in markdown content
-func findMarkdownBreakPoint(content string) int {
-	const marker string = "\n\n"
-	lastBreak := -1
-	idx := strings.LastIndex(content, marker)
-	if idx > lastBreak {
-		lastBreak = idx + len(marker)
-	}
-
-	return lastBreak
-}
-
-// processStream handles the streaming response from the API
-func processStream(body io.ReadCloser, usePlainText bool) error {
-	reader := bufio.NewReaderSize(body, 4096)
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024) // Increase buffer size
-	scanner.Split(bufio.ScanLines)
-
-	var buffer strings.Builder
-	var chunk ChatResponse
-	var lastPrintedLen int
-
-	var renderer *glamour.TermRenderer
-	if usePlainText {
-		renderer = getMarkdownRenderer()
-	}
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || line == "data: [DONE]" {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-
-		if len(chunk.Choices) > 0 {
-			content := chunk.Choices[0].Delta.Content
-			if content == "" {
-				content = chunk.Choices[0].Message.Content
-			}
-			if content != "" {
-				buffer.WriteString(content)
-			}
-		}
-
-		// Look for common markdown block endings to find natural break points
-		content := buffer.String()
-		if idx := findMarkdownBreakPoint(content[lastPrintedLen:]); idx > 0 {
-			// Process up to the break point
-			completeContent := content[:lastPrintedLen+idx]
-			section := completeContent[lastPrintedLen:]
-			if renderer == nil {
-				fmt.Print(section)
-			} else {
-				section = strings.TrimSpace(section)
-				if strings.HasPrefix(section, "#") {
-					fmt.Println() // Print a newline before headings
-				}
-				mdContent, err := renderer.Render(section)
-				if err != nil {
-					return fmt.Errorf("failed to render markdown: %w", err)
-				}
-				fmt.Println(strings.TrimSpace(mdContent))
-			}
-			lastPrintedLen = len(completeContent)
-		}
-	}
-
-	// Process any remaining content
-	if remaining := buffer.String()[lastPrintedLen:]; remaining != "" {
-		if renderer == nil {
-			fmt.Print(remaining)
-		} else {
-			if strings.HasPrefix(remaining, "#") {
-				fmt.Println() // Print a newline before headings
-			}
-			mdContent, err := renderer.Render(strings.TrimSpace(remaining))
-			if err != nil {
-				return fmt.Errorf("failed to render markdown: %w", err)
-			}
-			fmt.Println(strings.TrimSpace(mdContent))
-		}
-	}
-	fmt.Println()
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading response stream: %w", err)
-	}
-
-	return nil
+	go parser.Process(resp.Body)
+	return renderer.Render(parser.Chunks())
 }
