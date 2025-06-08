@@ -1,3 +1,9 @@
+## 0.2.0 (2025-06-07)
+
+### Refactor
+
+- split chat stream handling into packages
+
 ## 0.1.0 (2025-06-07)
 
 ### Feat
