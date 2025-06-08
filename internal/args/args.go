@@ -2,6 +2,7 @@ package args
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,7 +19,7 @@ type Arguments struct {
 }
 
 // parseArgs parses command-line arguments and stdin input.
-func ParseArgs() (Arguments, error) {
+func ParseArgs(ctx context.Context) (Arguments, error) {
 	var model string
 	var command string
 	var plainText bool

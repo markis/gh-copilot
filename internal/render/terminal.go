@@ -10,6 +10,7 @@ import (
 	"github.com/markis/gh-copilot/internal/stream"
 )
 
+// TerminalRenderer is responsible for rendering markdown content to the terminal.
 type TerminalRenderer struct {
 	ctx       context.Context
 	markdown  *glamour.TermRenderer
@@ -17,6 +18,7 @@ type TerminalRenderer struct {
 	buffer    strings.Builder
 }
 
+// NewTerminalRenderer creates a new TerminalRenderer instance.
 func NewTerminalRenderer(ctx context.Context, usePlainText bool) *TerminalRenderer {
 	var md *glamour.TermRenderer
 	if !usePlainText {
@@ -33,37 +35,59 @@ func NewTerminalRenderer(ctx context.Context, usePlainText bool) *TerminalRender
 	}
 }
 
+// Render processes the stream of chunks and renders them to the terminal.
 func (t *TerminalRenderer) Render(chunks <-chan stream.Chunk) error {
-	for chunk := range chunks {
-		if chunk.Error != nil {
-			return fmt.Errorf("stream error: %w", chunk.Error)
-		}
+	for {
+		select {
+		case <-t.ctx.Done():
+			return t.ctx.Err()
 
-		t.buffer.WriteString(chunk.Content)
-		content := t.buffer.String()
-
-		if idx := findMarkdownBreakPoint(content); idx > 0 {
-			if err := t.renderContent(content[:idx]); err != nil {
-				return err
+		case chunk, ok := <-chunks:
+			if !ok {
+				// Channel closed, render remaining content
+				return t.renderRemaining()
 			}
-			// Reset buffer with remaining content
-			remaining := content[idx:]
-			t.buffer.Reset()
-			t.buffer.WriteString(remaining)
+
+			if chunk.Error != nil {
+				return fmt.Errorf("stream error: %w", chunk.Error)
+			}
+
+			if err := t.processChunk(chunk.Content); err != nil {
+				return fmt.Errorf("failed to process chunk: %w", err)
+			}
 		}
 	}
+}
 
-	// Render any remaining content
-	if remaining := t.buffer.String(); remaining != "" {
-		if err := t.renderContent(remaining); err != nil {
+// processChunk processes the incoming content chunk, checking for markdown break points
+func (t *TerminalRenderer) processChunk(content string) error {
+	t.buffer.WriteString(content)
+	bufContent := t.buffer.String()
+
+	if idx := findMarkdownBreakPoint(bufContent); idx > 0 {
+		if err := t.renderContent(bufContent[:idx]); err != nil {
 			return err
 		}
+		// Reset buffer with remaining content
+		remaining := bufContent[idx:]
+		t.buffer.Reset()
+		t.buffer.WriteString(remaining)
 	}
+	return nil
+}
 
+// renderRemaining checks if there's any content left in the buffer and renders it.
+func (t *TerminalRenderer) renderRemaining() error {
+	if remaining := t.buffer.String(); remaining != "" {
+		if err := t.renderContent(remaining); err != nil {
+			return fmt.Errorf("failed to render remaining content: %w", err)
+		}
+	}
 	fmt.Println()
 	return nil
 }
 
+// renderContent processes and prints the content, handling both plain text and markdown rendering.
 func (t *TerminalRenderer) renderContent(content string) error {
 	if t.plainText {
 		fmt.Print(content)
@@ -84,6 +108,7 @@ func (t *TerminalRenderer) renderContent(content string) error {
 	return nil
 }
 
+// findMarkdownBreakPoint finds the last occurrence of a markdown break point in the content.
 func findMarkdownBreakPoint(content string) int {
 	const marker string = "\n\n"
 	lastBreak := -1

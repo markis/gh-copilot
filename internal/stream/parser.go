@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// ChatResponse represents the structure of the response from the chat API.
 type ChatResponse struct {
 	Choices []struct {
 		Delta struct {
@@ -28,30 +29,39 @@ func (p *Parser) Process(body io.ReadCloser) {
 
 	var chunk ChatResponse
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || line == "data: [DONE]" {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			p.chunks <- Chunk{Error: err}
-			continue
-		}
-
-		if len(chunk.Choices) > 0 {
-			content := chunk.Choices[0].Delta.Content
-			if content == "" {
-				content = chunk.Choices[0].Message.Content
+	for {
+		select {
+		case <-p.ctx.Done():
+			p.chunks <- Chunk{Error: p.ctx.Err()}
+			return
+		default:
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil {
+					p.chunks <- Chunk{Error: err}
+				}
+				return
 			}
-			if content != "" {
-				p.chunks <- Chunk{Content: content}
+
+			line := scanner.Text()
+			if line == "" || line == "data: [DONE]" {
+				continue
+			}
+
+			data := strings.TrimPrefix(line, "data: ")
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				p.chunks <- Chunk{Error: err}
+				continue
+			}
+
+			if len(chunk.Choices) > 0 {
+				content := chunk.Choices[0].Delta.Content
+				if content == "" {
+					content = chunk.Choices[0].Message.Content
+				}
+				if content != "" {
+					p.chunks <- Chunk{Content: content}
+				}
 			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		p.chunks <- Chunk{Error: err}
 	}
 }

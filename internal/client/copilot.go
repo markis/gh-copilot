@@ -50,7 +50,7 @@ type (
 // defaultHeaders returns the default headers for the API requests.
 func defaultHeaders() map[string]string {
 	return map[string]string{
-		"Editor-Version":         "vscode/1.100.2",
+		"Editor-Version":         "vscode/*",
 		"Copilot-Integration-Id": "vscode-chat",
 	}
 }

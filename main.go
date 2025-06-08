@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/markis/gh-copilot/internal/args"
@@ -16,10 +18,22 @@ const timeoutDuration = 5 * time.Minute
 
 func main() {
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, timeoutDuration)
-	defer cancel()
 
-	args, err := args.ParseArgs()
+	// Set up signal handling
+	ctx, cancel := context.WithCancel(ctx)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Fprintln(os.Stderr, "\nReceived termination signal. Shutting down...")
+		cancel()
+	}()
+
+	// set up a timeout context
+	ctx, cancelTimeout := context.WithTimeout(ctx, timeoutDuration)
+	defer cancelTimeout()
+
+	args, err := args.ParseArgs(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
