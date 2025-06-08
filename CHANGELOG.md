@@ -1,3 +1,9 @@
+## 0.3.0 (2025-06-07)
+
+### Fix
+
+- improve context handling and resource cleanup
+
 ## 0.2.0 (2025-06-07)
 
 ### Refactor
