@@ -17,52 +17,51 @@ import (
 const timeoutDuration = 5 * time.Minute
 
 func main() {
-	ctx := context.Background()
+	ctx, shutdown := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer shutdown()
 
-	// Set up signal handling
-	ctx, cancel := context.WithCancel(ctx)
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		fmt.Fprintln(os.Stderr, "\nReceived termination signal. Shutting down...")
-		cancel()
-	}()
+	// Add timeout to the context
+	ctx, cancel := context.WithTimeout(ctx, timeoutDuration)
+	defer cancel()
 
-	// set up a timeout context
-	ctx, cancelTimeout := context.WithTimeout(ctx, timeoutDuration)
-	defer cancelTimeout()
+	if err := run(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
+func run(ctx context.Context) error {
 	args, err := args.ParseArgs(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("parsing args: %w", err)
 	}
 
-	var prompt string
-	if args.Command != "" {
-		config, err := config.LoadConfig(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-			os.Exit(1)
-		}
-
-		cmdPrompt, ok := config.Prompts[args.Command]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Error: command '%s' not found in config\n", args.Command)
-			os.Exit(1)
-		}
-		prompt = cmdPrompt
-
-		if args.Prompt != "" {
-			prompt += "\n" + args.Prompt
-		}
-	} else {
-		prompt = args.Prompt
+	prompt, err := buildPrompt(ctx, args)
+	if err != nil {
+		return fmt.Errorf("building prompt: %w", err)
 	}
 
-	if err := client.Ask(ctx, prompt, args.Model, args.PlainText); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	return client.Ask(ctx, prompt, args.Model, args.PlainText)
+}
+
+func buildPrompt(ctx context.Context, args args.Arguments) (string, error) {
+	if args.Command == "" {
+		return args.Prompt, nil
 	}
+
+	config, err := config.LoadConfig(ctx)
+	if err != nil {
+		return "", fmt.Errorf("loading config: %w", err)
+	}
+
+	cmdPrompt, ok := config.Prompts[args.Command]
+	if !ok {
+		return "", fmt.Errorf("command '%s' not found in config", args.Command)
+	}
+
+	if args.Prompt == "" {
+		return cmdPrompt, nil
+	}
+
+	return cmdPrompt + "\n" + args.Prompt, nil
 }

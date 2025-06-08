@@ -20,10 +20,13 @@ var configFiles = []string{
 	"config.yml",
 }
 
+// Config represents the structure of the configuration file used by the application.
 type Config struct {
+	Model   string            `yaml:"model"`
 	Prompts map[string]string `yaml:"prompts"`
 }
 
+// configResult is a struct used to return the configuration and any error that occurs during loading.
 type configResult struct {
 	config *Config
 	err    error
@@ -75,8 +78,9 @@ func LoadConfig(ctx context.Context) (*Config, error) {
 		result <- configResult{config: cfg, err: err}
 	}()
 
+	done := ctx.Done()
 	select {
-	case <-ctx.Done():
+	case <-done:
 		return nil, ctx.Err()
 	case r := <-result:
 		return r.config, r.err

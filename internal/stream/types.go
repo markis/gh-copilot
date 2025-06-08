@@ -15,6 +15,7 @@ type Parser struct {
 	chunks chan Chunk
 }
 
+// NewParser creates a new Parser instance with a context and a channel for chunks
 func NewParser(ctx context.Context) *Parser {
 	return &Parser{
 		ctx:    ctx,
@@ -22,6 +23,7 @@ func NewParser(ctx context.Context) *Parser {
 	}
 }
 
+// Chunks returns a read-only channel that emits processed chunks
 func (p *Parser) Chunks() <-chan Chunk {
 	return p.chunks
 }

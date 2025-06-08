@@ -37,9 +37,10 @@ func NewTerminalRenderer(ctx context.Context, usePlainText bool) *TerminalRender
 
 // Render processes the stream of chunks and renders them to the terminal.
 func (t *TerminalRenderer) Render(chunks <-chan stream.Chunk) error {
+	done := t.ctx.Done()
 	for {
 		select {
-		case <-t.ctx.Done():
+		case <-done:
 			return t.ctx.Err()
 
 		case chunk, ok := <-chunks:

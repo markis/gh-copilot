@@ -21,6 +21,7 @@ type ChatResponse struct {
 
 func (p *Parser) Process(body io.ReadCloser) {
 	defer close(p.chunks)
+	done := p.ctx.Done()
 
 	reader := bufio.NewReaderSize(body, 4096)
 	scanner := bufio.NewScanner(reader)
@@ -31,7 +32,7 @@ func (p *Parser) Process(body io.ReadCloser) {
 
 	for {
 		select {
-		case <-p.ctx.Done():
+		case <-done:
 			p.chunks <- Chunk{Error: p.ctx.Err()}
 			return
 		default:
