@@ -197,15 +197,19 @@ func Ask(ctx context.Context, prompt, model string, usePlainText bool) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("failed to close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	parser := stream.NewParser()
-	renderer := render.NewTerminalRenderer(usePlainText)
+	parser := stream.NewParser(ctx)
+	renderer := render.NewTerminalRenderer(ctx, usePlainText)
 
 	go parser.Process(resp.Body)
 	return renderer.Render(parser.Chunks())

@@ -1,6 +1,7 @@
 package render
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -10,12 +11,13 @@ import (
 )
 
 type TerminalRenderer struct {
+	ctx       context.Context
 	markdown  *glamour.TermRenderer
 	plainText bool
 	buffer    strings.Builder
 }
 
-func NewTerminalRenderer(usePlainText bool) *TerminalRenderer {
+func NewTerminalRenderer(ctx context.Context, usePlainText bool) *TerminalRenderer {
 	var md *glamour.TermRenderer
 	if !usePlainText {
 		md, _ = glamour.NewTermRenderer(
@@ -25,6 +27,7 @@ func NewTerminalRenderer(usePlainText bool) *TerminalRenderer {
 	}
 
 	return &TerminalRenderer{
+		ctx:       ctx,
 		markdown:  md,
 		plainText: usePlainText,
 	}
