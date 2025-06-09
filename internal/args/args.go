@@ -12,7 +12,7 @@ import (
 
 // Arguments represents the command-line arguments structure.
 type Arguments struct {
-	Prompt    string
+	Prompts   []string
 	Model     string
 	Command   string
 	PlainText bool
@@ -28,7 +28,7 @@ func ParseArgs(ctx context.Context) (Arguments, error) {
 	flag.BoolVar(&plainText, "plain", shouldUsePlainText(), "Disable markdown rendering")
 	flag.Parse()
 
-	var prompt string
+	prompts := make([]string, 0, 2)
 	if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
 		// Piped input
 		scanner := bufio.NewScanner(os.Stdin)
@@ -41,16 +41,19 @@ func ParseArgs(ctx context.Context) (Arguments, error) {
 		if err := scanner.Err(); err != nil {
 			return Arguments{}, fmt.Errorf("failed to read stdin: %w", err)
 		}
-		prompt = strings.TrimSpace(buf.String())
-	} else if flag.NArg() > 0 {
-		prompt = flag.Arg(0)
+		prompt := strings.TrimSpace(buf.String())
+		prompts = append(prompts, prompt)
+	}
+	if flag.NArg() > 0 {
+		prompt := flag.Arg(0)
+		prompts = append(prompts, prompt)
 	}
 
-	if command == "" && prompt == "" {
+	if command == "" && len(prompts) == 0 {
 		return Arguments{}, errors.New("no prompt or command provided")
 	}
 
-	return Arguments{Prompt: prompt, Model: model, Command: command, PlainText: plainText}, nil
+	return Arguments{Prompts: prompts, Model: model, Command: command, PlainText: plainText}, nil
 }
 
 // shouldUsePlainText determines if plain text output should be used based on environment and terminal settings.

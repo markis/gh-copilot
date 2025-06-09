@@ -36,32 +36,32 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("parsing args: %w", err)
 	}
 
-	prompt, err := buildPrompt(ctx, args)
+	prompts, err := buildPrompt(ctx, args)
 	if err != nil {
 		return fmt.Errorf("building prompt: %w", err)
 	}
 
-	return client.Ask(ctx, prompt, args.Model, args.PlainText)
+	return client.Ask(ctx, prompts, args.Model, args.PlainText)
 }
 
-func buildPrompt(ctx context.Context, args args.Arguments) (string, error) {
+func buildPrompt(ctx context.Context, args args.Arguments) ([]string, error) {
 	if args.Command == "" {
-		return args.Prompt, nil
+		return args.Prompts, nil
 	}
 
 	config, err := config.LoadConfig(ctx)
 	if err != nil {
-		return "", fmt.Errorf("loading config: %w", err)
+		return []string{}, fmt.Errorf("loading config: %w", err)
 	}
 
 	cmdPrompt, ok := config.Prompts[args.Command]
 	if !ok {
-		return "", fmt.Errorf("command '%s' not found in config", args.Command)
+		return []string{}, fmt.Errorf("command '%s' not found in config", args.Command)
 	}
 
-	if args.Prompt == "" {
-		return cmdPrompt, nil
+	if len(args.Prompts) == 0 {
+		return []string{cmdPrompt}, nil
 	}
 
-	return cmdPrompt + "\n" + args.Prompt, nil
+	return append(args.Prompts, cmdPrompt), nil
 }

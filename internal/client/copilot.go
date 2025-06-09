@@ -40,6 +40,7 @@ type ChatResponse struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		Index int `json:"index"`
 	} `json:"choices"`
 }
 type (
@@ -103,12 +104,22 @@ func getHeaders(ctx context.Context) (map[string]string, error) {
 }
 
 // PrepareInput prepares chat input for Copilot API
-func prepareInput(prompt, modelID string) map[string]any {
+func prepareInput(prompts []string, modelID string) map[string]any {
 	// Get model configuration
 	isOpenAIModel := strings.HasPrefix(modelID, "o1")
 
-	messages := []Message{
-		{"role": "user", "content": prompt},
+	messages := make([]Message, 0, len(prompts))
+	for _, prompt := range prompts {
+		if strings.TrimSpace(prompt) == "" {
+			continue // Skip empty prompts
+		}
+
+		// Create message with role and content
+		message := Message{
+			"role":    "user",
+			"content": prompt,
+		}
+		messages = append(messages, message)
 	}
 
 	// Build base request payload with initial capacity
@@ -169,13 +180,13 @@ func getHTTPClient(ctx context.Context) *http.Client {
 }
 
 // Ask sends a chat request to the Copilot API and processes the response.
-func Ask(ctx context.Context, prompt, model string, usePlainText bool) error {
+func Ask(ctx context.Context, prompts []string, model string, usePlainText bool) error {
 	headers, err := getHeaders(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get headers: %w", err)
 	}
 
-	payload := prepareInput(prompt, model)
+	payload := prepareInput(prompts, model)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
