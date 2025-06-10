@@ -18,6 +18,7 @@ type TerminalRenderer struct {
 	markdown  *glamour.TermRenderer
 	plainText bool
 	buffer    strings.Builder
+	inBlock   bool // Track if we are currently in a block element (e.g., code block, table, etc.)
 }
 
 // NewTerminalRenderer creates a new TerminalRenderer instance.
@@ -25,6 +26,7 @@ func NewTerminalRenderer(ctx context.Context, cfg config.Config, args args.Argum
 	var md *glamour.TermRenderer
 	var err error
 
+	// use plain text rendering if specified in arguments
 	if !args.UsePlainText {
 		options := make([]glamour.TermRendererOption, 0, 2)
 		if cfg.Render.WrapLines && cfg.Render.WrapWidth >= 0 {
@@ -77,7 +79,7 @@ func (t *TerminalRenderer) processChunk(content string) error {
 	t.buffer.WriteString(content)
 	bufContent := t.buffer.String()
 
-	if idx := findMarkdownBreakPoint(bufContent); idx > 0 {
+	if idx := t.findMarkdownBreakPoint(bufContent); idx > -1 {
 		if err := t.renderContent(bufContent[:idx]); err != nil {
 			return err
 		}
@@ -121,13 +123,84 @@ func (t *TerminalRenderer) renderContent(content string) error {
 	return nil
 }
 
-// findMarkdownBreakPoint finds the last occurrence of a markdown break point in the content.
-func findMarkdownBreakPoint(content string) int {
-	const marker string = "\n\n"
-	lastBreak := -1
-	idx := strings.LastIndex(content, marker)
-	if idx > lastBreak {
-		lastBreak = idx + len(marker)
+// findMarkdownBreakPoint finds the last occurrence of a markdown break point in the content,
+// ignoring any breakpoints that occur within block elements.
+func (t *TerminalRenderer) findMarkdownBreakPoint(content string) int {
+	lines := strings.Split(content, "\n")
+
+	inCodeBlock := false
+	inList := false
+	inTable := false
+	inBlockquote := false
+	lastBreakPosition := -1
+
+	position := 0
+	for i, line := range lines {
+		lineLength := len(line) + 1 // +1 for newline
+		trimmed := strings.TrimSpace(line)
+
+		// Check for code block delimiters
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+		}
+
+		// Skip processing if in code block
+		if !inCodeBlock {
+			// Check for table rows
+			if strings.HasPrefix(trimmed, "|") && strings.Contains(trimmed, "|") {
+				inTable = true
+			} else if inTable && trimmed == "" {
+				inTable = false
+				// Add a break after table ends
+				lastBreakPosition = position
+			}
+
+			// Check for blockquotes
+			if strings.HasPrefix(trimmed, ">") {
+				inBlockquote = true
+			} else if inBlockquote && trimmed == "" {
+				inBlockquote = false
+				// Add a break after blockquote ends
+				lastBreakPosition = position
+			}
+
+			// Check for list items
+			listPrefix := strings.HasPrefix(trimmed, "- ") ||
+				strings.HasPrefix(trimmed, "* ") ||
+				strings.HasPrefix(trimmed, "+ ") ||
+				(len(trimmed) > 0 && strings.Contains("0123456789", string(trimmed[0])) &&
+					strings.Contains(trimmed, ". "))
+
+			if listPrefix {
+				inList = true
+			} else if inList && trimmed == "" {
+				inList = false
+				// Add a break after list ends
+				lastBreakPosition = position
+			}
+
+			// Find break points (paragraphs, headers, etc.)
+			currentInBlock := inCodeBlock || inTable || inBlockquote || inList
+
+			// Consider a break point when we're not in a block and find an empty line
+			// followed by a non-empty line or the end of content
+			if !currentInBlock && trimmed == "" && i > 0 {
+				// If next line exists and is not empty, or this is the last line
+				if (i+1 < len(lines) && strings.TrimSpace(lines[i+1]) != "") || i == len(lines)-1 {
+					lastBreakPosition = position
+				}
+			}
+
+			// Also break at headers for better rendering
+			if !currentInBlock && strings.HasPrefix(trimmed, "#") {
+				if position > 0 { // Don't break at the very beginning
+					lastBreakPosition = position - lineLength
+				}
+			}
+		}
+
+		position += lineLength
 	}
-	return lastBreak
+
+	return lastBreakPosition
 }
