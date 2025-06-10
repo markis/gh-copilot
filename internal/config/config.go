@@ -27,10 +27,12 @@ type Config struct {
 	ContextTimeout time.Duration `yaml:"context_timeout,omitempty" default:"10m"`
 	Model          string        `yaml:"model" default:"claude-3.7-sonnet"`
 
-	Http    ConfigHttp              `yaml:"http"`
-	Render  ConfigRender            `yaml:"render"`
-	Prompts map[string]ConfigPrompt `yaml:"prompts"`
+	Http    ConfigHttp   `yaml:"http"`
+	Render  ConfigRender `yaml:"render"`
+	Prompts Prompts      `yaml:"prompts"`
 }
+
+type Prompts map[string]ConfigPrompt
 
 type ConfigPrompt struct {
 	Model  string `yaml:"model,omitempty"`
@@ -62,9 +64,15 @@ type configResult struct {
 	err    error
 }
 
+var defaultPrompts = Prompts{
+	"ask": {Prompt: "Answer the following question."},
+}
+
 // newDefaultConfig creates a new default configuration with an empty prompts map.
 func newDefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		Prompts: defaultPrompts,
+	}
 }
 
 // getConfigPath retrieves the path to the configuration directory based on the XDG_CONFIG_HOME environment variable.
