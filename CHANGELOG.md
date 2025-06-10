@@ -1,3 +1,14 @@
+## v0.5.0 (2025-06-10)
+
+### Feat
+
+- **config**: add default prompt and restructure config
+- improve markdown block element handling
+
+### Refactor
+
+- migrate from flag to cobra for CLI args
+
 ## v0.4.0 (2025-06-09)
 
 ### Feat
