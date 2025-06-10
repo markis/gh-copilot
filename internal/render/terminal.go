@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/cli/go-gh/v2/pkg/markdown"
+	"github.com/markis/gh-copilot/internal/args"
+	"github.com/markis/gh-copilot/internal/config"
 	"github.com/markis/gh-copilot/internal/stream"
 )
 
@@ -19,20 +21,30 @@ type TerminalRenderer struct {
 }
 
 // NewTerminalRenderer creates a new TerminalRenderer instance.
-func NewTerminalRenderer(ctx context.Context, usePlainText bool) *TerminalRenderer {
+func NewTerminalRenderer(ctx context.Context, cfg config.Config, args args.Arguments) (*TerminalRenderer, error) {
 	var md *glamour.TermRenderer
-	if !usePlainText {
-		md, _ = glamour.NewTermRenderer(
-			markdown.WithWrap(120),
-			glamour.WithAutoStyle(),
-		)
+	var err error
+
+	if !args.UsePlainText {
+		options := make([]glamour.TermRendererOption, 0, 2)
+		if cfg.Render.WrapLines && cfg.Render.WrapWidth >= 0 {
+			options = append(options, markdown.WithWrap(cfg.Render.WrapWidth))
+		}
+		if cfg.Render.Theme != "" {
+			options = append(options, glamour.WithStandardStyle(cfg.Render.Theme))
+		}
+
+		md, err = glamour.NewTermRenderer(options...)
+		if err != nil {
+			return nil, fmt.Errorf("creating markdown renderer: %w", err)
+		}
 	}
 
 	return &TerminalRenderer{
 		ctx:       ctx,
 		markdown:  md,
-		plainText: usePlainText,
-	}
+		plainText: args.UsePlainText,
+	}, nil
 }
 
 // Render processes the stream of chunks and renders them to the terminal.

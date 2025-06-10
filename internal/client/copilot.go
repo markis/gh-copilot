@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/markis/gh-copilot/internal/args"
+	"github.com/markis/gh-copilot/internal/config"
 	"github.com/markis/gh-copilot/internal/render"
 	"github.com/markis/gh-copilot/internal/stream"
 )
@@ -31,8 +33,8 @@ type AuthorizationResponse struct {
 	Token string `json:"token"`
 }
 
-// ChatResponse represents the structure of the response from the chat API.
-type ChatResponse struct {
+// ApiResponse represents the structure of the response from the chat API.
+type ApiResponse struct {
 	Choices []struct {
 		Delta struct {
 			Content string `json:"content"`
@@ -43,10 +45,27 @@ type ChatResponse struct {
 		Index int `json:"index"`
 	} `json:"choices"`
 }
-type (
-	Message map[string]any
-	Options map[string]any
+
+type Role string
+
+const (
+	UserRole      Role = "user"
+	SystemRole    Role = "system"
+	AssistantRole Role = "assistant"
 )
+
+type Message struct {
+	Role    Role   `json:"role"`    // "user", "assistant", or "system"
+	Content string `json:"content"` // The message content
+}
+
+type ApiPayload struct {
+	Model          string    `json:"model"`
+	Messages       []Message `json:"messages"`
+	NumOfResponses int       `json:"n,omitempty"`      // Number of responses to generate
+	TopP           float64   `json:"top_p,omitempty"`  // Top-p sampling
+	Stream         bool      `json:"stream,omitempty"` // Whether to stream the response
+}
 
 // defaultHeaders returns the default headers for the API requests.
 func defaultHeaders() map[string]string {
@@ -57,13 +76,13 @@ func defaultHeaders() map[string]string {
 }
 
 // getHeaders retrieves the authorization headers required for the API requests.
-func getHeaders(ctx context.Context) (map[string]string, error) {
+func getHeaders(ctx context.Context, cfg config.Config) (map[string]string, error) {
 	token, err := getGitHubToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := getHTTPClient(ctx, cfg)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GitHubAPI+"/copilot_internal/v2/token", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -103,35 +122,36 @@ func getHeaders(ctx context.Context) (map[string]string, error) {
 	return headers, nil
 }
 
-// PrepareInput prepares chat input for Copilot API
-func prepareInput(prompts []string, modelID string) map[string]any {
+// prepareInput constructs the API payload from user arguments.
+// It converts user prompts into the message format expected by the API,
+// sets the appropriate model, and configures model-specific parameters.
+func prepareInput(args args.Arguments) ApiPayload {
 	// Get model configuration
-	isOpenAIModel := strings.HasPrefix(modelID, "o1")
+	isOpenAIModel := strings.HasPrefix(args.Model, "o1")
 
-	messages := make([]Message, 0, len(prompts))
-	for _, prompt := range prompts {
+	messages := make([]Message, 0, len(args.Prompts))
+	for _, prompt := range args.Prompts {
 		if strings.TrimSpace(prompt) == "" {
 			continue // Skip empty prompts
 		}
 
-		// Create message with role and content
-		message := Message{
-			"role":    "user",
-			"content": prompt,
-		}
-		messages = append(messages, message)
+		messages = append(messages, Message{
+			Role:    UserRole,
+			Content: prompt,
+		})
 	}
 
 	// Build base request payload with initial capacity
-	payload := make(map[string]any, 5) // Pre-allocate for common case
-	payload["messages"] = messages
-	payload["model"] = modelID
+	payload := ApiPayload{
+		Model:    args.Model,
+		Messages: messages,
+	}
 
 	// Add non-OpenAI specific parameters
 	if !isOpenAIModel {
-		payload["n"] = 1
-		payload["top_p"] = 1
-		payload["stream"] = true
+		payload.NumOfResponses = 1
+		payload.TopP = 1.0
+		payload.Stream = true
 	}
 
 	return payload
@@ -141,23 +161,22 @@ func prepareInput(prompts []string, modelID string) map[string]any {
 var (
 	httpClient     *http.Client
 	httpClientOnce sync.Once
-	defaultTimeout = 60 * time.Second
 )
 
-func getHTTPClient(ctx context.Context) *http.Client {
+func getHTTPClient(ctx context.Context, cfg config.Config) *http.Client {
 	httpClientOnce.Do(func() {
 		transport := &http.Transport{
-			MaxIdleConns:       100,
-			IdleConnTimeout:    90 * time.Second,
-			DisableCompression: false,
-			DisableKeepAlives:  false,
-			ForceAttemptHTTP2:  true,
+			MaxIdleConns:       cfg.Http.MaxIdleConns,
+			IdleConnTimeout:    cfg.Http.IdleConnTimeout,
+			DisableCompression: cfg.Http.DisableCompression,
+			DisableKeepAlives:  cfg.Http.DisableKeepAlives,
+			ForceAttemptHTTP2:  cfg.Http.ForceAttemptHTTP2,
 		}
 
 		// Add context-aware dial options
 		transport.DialContext = (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   cfg.Http.DialContextTimeout,
+			KeepAlive: cfg.Http.DialContextKeepAlive,
 		}).DialContext
 
 		httpClient = &http.Client{
@@ -175,18 +194,18 @@ func getHTTPClient(ctx context.Context) *http.Client {
 
 	// Return default client with default timeout
 	clientCopy := *httpClient
-	clientCopy.Timeout = defaultTimeout
+	clientCopy.Timeout = cfg.Http.HttpClientTimeout
 	return &clientCopy
 }
 
 // Ask sends a chat request to the Copilot API and processes the response.
-func Ask(ctx context.Context, prompts []string, model string, usePlainText bool) error {
-	headers, err := getHeaders(ctx)
+func Ask(ctx context.Context, cfg config.Config, args args.Arguments) error {
+	headers, err := getHeaders(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to get headers: %w", err)
 	}
 
-	payload := prepareInput(prompts, model)
+	payload := prepareInput(args)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -203,7 +222,7 @@ func Ask(ctx context.Context, prompts []string, model string, usePlainText bool)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := getHTTPClient(ctx)
+	client := getHTTPClient(ctx, cfg)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
@@ -220,7 +239,10 @@ func Ask(ctx context.Context, prompts []string, model string, usePlainText bool)
 	}
 
 	parser := stream.NewParser(ctx)
-	renderer := render.NewTerminalRenderer(ctx, usePlainText)
+	renderer, err := render.NewTerminalRenderer(ctx, cfg, args)
+	if err != nil {
+		return fmt.Errorf("failed to create renderer: %w", err)
+	}
 
 	go parser.Process(resp.Body)
 	return renderer.Render(parser.Chunks())

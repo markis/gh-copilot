@@ -8,24 +8,26 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/markis/gh-copilot/internal/config"
 )
 
 // Arguments represents the command-line arguments structure.
 type Arguments struct {
-	Prompts   []string
-	Model     string
-	Command   string
-	PlainText bool
+	Prompts      []string
+	Model        string
+	Command      string
+	UsePlainText bool
 }
 
 // parseArgs parses command-line arguments and stdin input.
-func ParseArgs(ctx context.Context) (Arguments, error) {
+func ParseArgs(ctx context.Context, cfg config.Config) (Arguments, error) {
 	var model string
 	var command string
 	var plainText bool
-	flag.StringVar(&model, "model", "claude-3.7-sonnet", "The AI model to use")
+	flag.StringVar(&model, "model", cfg.Model, "The AI model to use")
 	flag.StringVar(&command, "c", "", "Use a predefined command from config")
-	flag.BoolVar(&plainText, "plain", shouldUsePlainText(), "Disable markdown rendering")
+	flag.BoolVar(&plainText, "plain", shouldUsePlainText(cfg), "Disable markdown rendering")
 	flag.Parse()
 
 	prompts := make([]string, 0, 2)
@@ -53,11 +55,28 @@ func ParseArgs(ctx context.Context) (Arguments, error) {
 		return Arguments{}, errors.New("no prompt or command provided")
 	}
 
-	return Arguments{Prompts: prompts, Model: model, Command: command, PlainText: plainText}, nil
+	if command != "" && len(prompts) > 0 {
+		cmdPrompt, ok := cfg.Prompts[command]
+		if !ok {
+			return Arguments{}, fmt.Errorf("command '%s' not found in config", command)
+		}
+		prompts = append(prompts, cmdPrompt.Prompt)
+
+		if cmdPrompt.Model != "" {
+			model = cmdPrompt.Model
+		}
+	}
+
+	return Arguments{Prompts: prompts, Model: model, Command: command, UsePlainText: plainText}, nil
 }
 
 // shouldUsePlainText determines if plain text output should be used based on environment and terminal settings.
-func shouldUsePlainText() bool {
+func shouldUsePlainText(cfg config.Config) bool {
+	// Check if the rendering format is set to plain
+	if cfg.Render.Format == "plain" {
+		return true
+	}
+
 	// Check if output is being redirected
 	if fileInfo, _ := os.Stdout.Stat(); fileInfo != nil {
 		if (fileInfo.Mode() & os.ModeCharDevice) == 0 {

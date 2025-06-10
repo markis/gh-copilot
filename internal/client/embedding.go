@@ -9,6 +9,8 @@ import (
 	"math"
 	"net/http"
 	"sort"
+
+	"github.com/markis/gh-copilot/internal/config"
 )
 
 // EmbeddingInput represents an input for embedding generation
@@ -104,8 +106,8 @@ func prepareEmbeddingRequest(inputs []EmbeddingInput, threshold int) []string {
 //
 // // Use in chat with relevant context
 // err = Ask(ctx, "Explain this code", "copilot-codex", false, relevantDocs)
-func GenerateEmbeddings(ctx context.Context, inputs []EmbeddingInput, model string) ([]EmbeddingOutput, error) {
-	headers, err := getHeaders(ctx)
+func GenerateEmbeddings(ctx context.Context, cfg config.Config, inputs []EmbeddingInput, model string) ([]EmbeddingOutput, error) {
+	headers, err := getHeaders(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get headers: %w", err)
 	}
@@ -134,7 +136,7 @@ func GenerateEmbeddings(ctx context.Context, inputs []EmbeddingInput, model stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := getHTTPClient(ctx)
+	client := getHTTPClient(ctx, cfg)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)

@@ -5,6 +5,7 @@ go 1.24.3
 require (
 	github.com/charmbracelet/glamour v0.9.2-0.20250319212134-549f544650e3
 	github.com/cli/go-gh/v2 v2.12.1
+	github.com/creasty/defaults v1.8.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
