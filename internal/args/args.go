@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/markis/gh-copilot/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // Arguments represents the command-line arguments structure.
@@ -20,19 +20,53 @@ type Arguments struct {
 	UsePlainText bool
 }
 
-// parseArgs parses command-line arguments and stdin input.
+// ParseArgs parses command-line arguments and stdin input, returning an Arguments struct.
+// It uses Cobra to handle commands and flags, allowing for both predefined commands and direct prompts.
+// It reads from stdin if available, and handles errors gracefully.
 func ParseArgs(ctx context.Context, cfg config.Config) (Arguments, error) {
-	var model string
-	var command string
-	var plainText bool
-	flag.StringVar(&model, "model", cfg.Model, "The AI model to use")
-	flag.StringVar(&command, "c", "", "Use a predefined command from config")
-	flag.BoolVar(&plainText, "plain", shouldUsePlainText(cfg), "Disable markdown rendering")
-	flag.Parse()
+	args := Arguments{}
 
-	prompts := make([]string, 0, 2)
+	rootCmd := &cobra.Command{
+		Use:   "gh-copilot [command] [flags] [prompt]",
+		Short: "A GitHub Copilot CLI tool for AI-assisted development",
+		RunE: func(cmd *cobra.Command, cmdArgs []string) error {
+			// Handle direct prompts (when no command is specified)
+			if len(cmdArgs) > 0 {
+				args.Prompts = append(args.Prompts, cmdArgs[0])
+			}
+			return nil
+		},
+		SilenceErrors: true, // We'll handle error reporting
+		SilenceUsage:  true, // We'll handle usage display
+	}
+
+	// Global flags
+	rootCmd.PersistentFlags().StringVar(&args.Model, "model", cfg.Model, "The AI model to use")
+	rootCmd.PersistentFlags().BoolVar(&args.UsePlainText, "plain", shouldUsePlainText(cfg), "Disable markdown rendering")
+
+	// Add predefined commands
+	for name, prompt := range cfg.Prompts {
+		cmdPrompt := prompt // Create a local copy for the closure
+		cmd := &cobra.Command{
+			Use:   name + " [input]",
+			Short: summarizePrompt(cmdPrompt.Prompt),
+			RunE: func(cmd *cobra.Command, cmdArgs []string) error {
+				args.Command = name
+				if len(cmdArgs) > 0 {
+					args.Prompts = append(args.Prompts, cmdArgs[0])
+				}
+				args.Prompts = append(args.Prompts, cmdPrompt.Prompt)
+				if cmdPrompt.Model != "" {
+					args.Model = cmdPrompt.Model
+				}
+				return nil
+			},
+		}
+		rootCmd.AddCommand(cmd)
+	}
+
+	// Read from stdin if available
 	if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-		// Piped input
 		scanner := bufio.NewScanner(os.Stdin)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max buffer
 		var buf strings.Builder
@@ -44,30 +78,20 @@ func ParseArgs(ctx context.Context, cfg config.Config) (Arguments, error) {
 			return Arguments{}, fmt.Errorf("failed to read stdin: %w", err)
 		}
 		prompt := strings.TrimSpace(buf.String())
-		prompts = append(prompts, prompt)
-	}
-	if flag.NArg() > 0 {
-		prompt := flag.Arg(0)
-		prompts = append(prompts, prompt)
+		args.Prompts = append(args.Prompts, prompt)
 	}
 
-	if command == "" && len(prompts) == 0 {
-		return Arguments{}, errors.New("no prompt or command provided")
+	// Execute the command
+	if err := rootCmd.Execute(); err != nil {
+		return Arguments{}, err
 	}
 
-	if command != "" && len(prompts) > 0 {
-		cmdPrompt, ok := cfg.Prompts[command]
-		if !ok {
-			return Arguments{}, fmt.Errorf("command '%s' not found in config", command)
-		}
-		prompts = append(prompts, cmdPrompt.Prompt)
-
-		if cmdPrompt.Model != "" {
-			model = cmdPrompt.Model
-		}
+	// Check if we have any prompts
+	if len(args.Prompts) == 0 {
+		return Arguments{}, errors.New("no prompt provided")
 	}
 
-	return Arguments{Prompts: prompts, Model: model, Command: command, UsePlainText: plainText}, nil
+	return args, nil
 }
 
 // shouldUsePlainText determines if plain text output should be used based on environment and terminal settings.
@@ -95,4 +119,13 @@ func shouldUsePlainText(cfg config.Config) bool {
 	}
 
 	return false
+}
+
+func summarizePrompt(prompt string) string {
+	// Trim and limit the length of the prompt summary
+	summary := strings.TrimSpace(prompt)
+	if len(summary) > 60 {
+		summary = summary[:57] + "..."
+	}
+	return summary
 }
